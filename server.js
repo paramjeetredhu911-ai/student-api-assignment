@@ -2,23 +2,25 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// In-memory array acting as our database fallback
 let students = [
   { id: "1", name: "Paramjeet", email: "param@example.com", phone: "1234567890", course: "Frontend Development" }
 ];
 
-// 1. POST /api/students (Create student)
-app.post('/api/students', (req, res) => {
-  const { name, email, phone, course } = req.body;
-  if (!name || !email || !phone || !course) {
-    return res.status(400).json({ error: "All fields are required" });
+// --- EXISTING CRUD ROUTES ---
+app.post('/api/students', (req, res, next) => {
+  try {
+    const { name, email, phone, course } = req.body;
+    if (!name || !email || !phone || !course) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    const newStudent = { id: Date.now().toString(), name, email, phone, course };
+    students.push(newStudent);
+    res.status(201).json(newStudent);
+  } catch (err) {
+    next(err); // Passes errors straight to our custom error handler below
   }
-  const newStudent = { id: Date.now().toString(), name, email, phone, course };
-  students.push(newStudent);
-  res.status(201).json(newStudent);
 });
 
-// 2. GET /api/students (Get all students with optional course filtering)
 app.get('/api/students', (req, res) => {
   const { course } = req.query;
   if (course) {
@@ -28,14 +30,12 @@ app.get('/api/students', (req, res) => {
   res.status(200).json(students);
 });
 
-// 3. GET /api/students/:id (Get single student)
 app.get('/api/students/:id', (req, res) => {
   const student = students.find(s => s.id === req.params.id);
   if (!student) return res.status(404).json({ error: "Student not found" });
   res.status(200).json(student);
 });
 
-// 4. PATCH /api/students/:id (Update student partially)
 app.patch('/api/students/:id', (req, res) => {
   const student = students.find(s => s.id === req.params.id);
   if (!student) return res.status(404).json({ error: "Student not found" });
@@ -48,13 +48,49 @@ app.patch('/api/students/:id', (req, res) => {
   res.status(200).json(student);
 });
 
-// 5. DELETE /api/students/:id (Delete student)
 app.delete('/api/students/:id', (req, res) => {
   const index = students.findIndex(s => s.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: "Student not found" });
   
   students.splice(index, 1);
   res.status(200).json({ message: "Student deleted successfully" });
+});
+
+
+// --- TASK #3 REQUIREMENT 1: 404 NOT FOUND MIDDLEWARE ---
+// This handles requests to completely unknown routes
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found"
+  });
+});
+
+
+// --- TASK #3 REQUIREMENT 2: GLOBAL ERROR HANDLER ---
+// Must contain exactly four parameters (err, req, res, next)
+app.use((err, req, res, next) => {
+  // Case A: ValidationError
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      message: err.message || "Validation failed"
+    });
+  }
+
+  // Case B: Duplicate Key Error (code 11000)
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: "Email already exists."
+    });
+  }
+
+  // Case C: Standard fallback server error
+  res.status(500).json({
+    success: false,
+    message: err.message || "Internal Server Error"
+  });
 });
 
 const PORT = 3000;
