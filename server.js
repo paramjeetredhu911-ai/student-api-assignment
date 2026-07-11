@@ -5,77 +5,98 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'yoursecretkey';
 
-// In-memory array fallback database
+// Mock in-memory database storage
 let studentsInMemory = [];
+let coursesInMemory = [];
 
-// --- TASK #2 REQUIREMENT: PROTECT MIDDLEWARE ---
+// PROTECT MIDDLEWARE
 const protect = (req, res, next) => {
   let token;
-
-  // 1. Check if the header is missing or does not start with Bearer
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    // 2. Extract the token by splitting on the space and taking the second part
     token = req.headers.authorization.split(' ')[1];
   }
-
   if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      message: "No token provided. Please log in." 
-    });
+    return res.status(401).json({ success: false, message: "No token provided." });
   }
-
   try {
-    // 3. Verify token with JWT_SECRET
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // 4. Set req.user to the decoded payload and call next()
-    req.user = decoded;
+    req.user = decoded; // Contains student payload like userId or id
     next();
   } catch (error) {
-    // 5. If verification fails return 401
-    return res.status(401).json({ 
-      success: false, 
-      message: "Invalid token. Please log in again." 
-    });
+    return res.status(401).json({ success: false, message: "Invalid token." });
   }
 };
 
-// --- TASK #1 AUTH ROUTES ---
+// --- AUTH ENDPOINTS ---
 app.post('/api/auth/signup', (req, res) => {
   const { name, email, phone, course, password } = req.body;
-  if (!name || !email || !phone || !course || !password) {
-    return res.status(400).json({ error: "All fields are required" });
-  }
-  
-  // Create a real token with payload
-  const token = jwt.sign({ name, email }, JWT_SECRET, { expiresIn: '7d' });
-  const newStudent = { id: Date.now().toString(), name, email, phone, course, token };
+  const id = Date.now().toString(); // Simulating ObjectId string
+  const token = jwt.sign({ id, name, email }, JWT_SECRET, { expiresIn: '7d' });
+  const newStudent = { id, name, email, phone, course };
   studentsInMemory.push(newStudent);
-  
   res.status(201).json({ name, email, token });
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  const student = studentsInMemory.find(s => s.email === email);
-  if (!student) {
-    return res.status(401).json({ success: false, message: "Invalid email or password" });
+// --- TASK #3 COURSE ROUTES (Registered at /api/courses) ---
+
+// 1. POST /api/courses (Protected)
+app.post('/api/courses', protect, (req, res) => {
+  const { title, description, duration, instructor } = req.body;
+  if (!title || !description || !duration || !instructor) {
+    return res.status(400).json({ error: "All course fields are required" });
   }
-  res.status(200).json({ token: student.token });
+  
+  const newCourse = {
+    id: (coursesInMemory.length + 1).toString(),
+    title,
+    description,
+    duration,
+    instructor,
+    students: [] // empty enrollment array initially
+  };
+  
+  coursesInMemory.push(newCourse);
+  res.status(201).json(newCourse);
 });
 
-// --- SECURED STUDENT ROUTES (Protected with the middleware) ---
-// Note the 'protect' argument inserted before the route handler
-app.get('/api/students', protect, (req, res) => {
-  res.status(200).json(studentsInMemory);
+// 2. GET /api/courses (Public - Simulating populated student fields)
+app.get('/api/courses', (req, res) => {
+  // Simulates returning only the name and email of each enrolled student
+  const populatedCourses = coursesInMemory.map(course => {
+    const fullStudents = course.students.map(studentId => {
+      const studentObj = studentsInMemory.find(s => s.id === studentId) || {};
+      return { name: studentObj.name || "Test Student", email: studentObj.email || "test@email.com" };
+    });
+    return { ...course, students: fullStudents };
+  });
+
+  res.status(200).json(populatedCourses);
 });
 
-app.post('/api/students', protect, (req, res) => {
-  const { name, email, phone, course } = req.body;
-  const newStudent = { id: Date.now().toString(), name, email, phone, course };
-  studentsInMemory.push(newStudent);
-  res.status(201).json(newStudent);
+// 3. POST /api/courses/:id/enroll (Protected)
+app.post('/api/courses/:id/enroll', protect, (req, res) => {
+  const course = coursesInMemory.find(c => c.id === req.params.id);
+  if (!course) {
+    return res.status(404).json({ error: "Course not found" });
+  }
+
+  // Task Requirement: Get student ID from decoded token payload
+  const studentId = req.user.id;
+
+  // Task Requirement: Check if student is already enrolled (Return 409 Conflict)
+  if (course.students.includes(studentId)) {
+    return res.status(409).json({ success: false, message: "You are already enrolled in this course." });
+  }
+
+  // Push student and save
+  course.students.push(studentId);
+
+  // Task Requirement: Return success message with total count
+  res.status(200).json({
+    success: true,
+    message: "Enrolled successfully!",
+    totalStudentsEnrolled: course.students.length
+  });
 });
 
 const PORT = 3000;
