@@ -1,71 +1,36 @@
-const VALID_COURSES = [
-  'Frontend Development',
-  'Backend Development',
-  'Full Stack Development',
-];
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_REGEX = /^\d{10}$/;
+const StudentSchema = new mongoose.Schema({
+  name: { type: String, required: true, minlength: 2 },
+  email: { type: String, required: true, unique: true },
+  phone: { type: String, required: true, match: /^\d{10}$/ },
+  course: { type: String, required: true, enum: ['Frontend Development', 'Backend Development', 'Full Stack Development'] },
+  // Task Requirement: Password field hidden by default (select: false)
+  password: { type: String, required: true, minlength: 6, select: false }
+});
 
-function validateStudent(input, { partial = false } = {}) {
-  const errors = [];
+// Task Requirement: Pre-save hook to hash password
+StudentSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
 
-  if (!partial || input.name !== undefined) {
-    if (input.name === undefined || input.name === null || input.name === '') {
-      errors.push('name is required');
-    } else {
-      const name = String(input.name).trim();
-      if (name.length < 2) {
-        errors.push('name must be at least 2 characters long');
-      }
-    }
-  }
-
-  if (!partial || input.email !== undefined) {
-    if (input.email === undefined || input.email === null || input.email === '') {
-      errors.push('email is required');
-    } else {
-      const email = String(input.email).trim();
-      if (!EMAIL_REGEX.test(email)) {
-        errors.push('email must be a valid email address');
-      }
-    }
-  }
-
-  if (input.phone !== undefined && input.phone !== null && input.phone !== '') {
-    const phone = String(input.phone).trim();
-    if (!PHONE_REGEX.test(phone)) {
-      errors.push('phone must be exactly 10 digits');
-    }
-  }
-
-  if (!partial || input.course !== undefined) {
-    if (input.course === undefined || input.course === null || input.course === '') {
-      errors.push('course is required');
-    } else {
-      const course = String(input.course).trim();
-      if (!VALID_COURSES.includes(course)) {
-        errors.push(`course must be one of: ${VALID_COURSES.join(', ')}`);
-      }
-    }
-  }
-
-  return errors;
-}
-
-function normalizeStudent(input) {
-  return {
-    name: String(input.name).trim(),
-    email: String(input.email).trim().toLowerCase(),
-    phone: input.phone !== undefined && input.phone !== null && input.phone !== ''
-      ? String(input.phone).trim()
-      : '',
-    course: String(input.course).trim(),
-  };
-}
-
-module.exports = {
-  VALID_COURSES,
-  validateStudent,
-  normalizeStudent,
+// Task Requirement: Instance method to compare password
+StudentSchema.methods.comparePassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
 };
+
+// Task Requirement: Instance method to generate JWT token
+StudentSchema.methods.generateToken = function () {
+  return jwt.sign(
+    { id: this._id }, 
+    process.env.JWT_SECRET || 'yoursecretkey', 
+    { expiresIn: '7d' }
+  );
+};
+
+module.exports = mongoose.model('Student', StudentSchema);
